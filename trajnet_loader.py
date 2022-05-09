@@ -191,3 +191,65 @@ def trajnet_loader(
                 non_linear_ped, loss_mask, seq_start_end)
             obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel = [], [], [], []
             loss_mask, seq_start_end = [], []
+
+
+def trajnet_loader_batch(
+    data_loader, 
+    args, 
+    drop_distant_ped=False, 
+    test=False, 
+    keep_single_ped_scenes=False,
+    fill_missing_obs=False
+    ):
+    """
+    This version of the trajnet loader is suitable for SocialWays.
+    It collects all the samples that the original trajnet loader returns, 
+    organizes the data in a way that's required for SocialWays and returns it 
+    as such. The necessary adaptations are:
+        - stack all the per-scene observations and prediction ground truths 
+            in a big array, i.e. collect all the trajectories in one tensor
+        - memorize which trajectories correspond to which scene
+    """
+
+    # We're using the original trajnet loader to create the 'iterator', and
+    # then collect all the yielded samples by casting it into a list
+    traj_loader = trajnet_loader(
+        data_loader, args, 
+        drop_distant_ped=True, 
+        fill_missing_obs=args.fill_missing_obs,
+        keep_single_ped_scenes=args.keep_single_ped_scenes
+        ) 
+    traj_loader = list(traj_loader)
+
+    # Adapting for the use-case of SocialWays
+    obs_traj_stacked, pred_traj_gt_stacked = None, None 
+    traj_indices_per_batch, curr_traj_cnt = [], 0
+    for batch in traj_loader:
+        (obs_traj, pred_traj_gt, _, _, _, _, _) = batch
+
+        # Stack the current trajectories 
+        obs_traj_stacked = obs_traj if obs_traj_stacked is None \
+            else torch.cat((obs_traj_stacked, obs_traj), dim=1) 
+
+        pred_traj_gt_stacked = pred_traj_gt if pred_traj_gt_stacked is None \
+            else torch.cat((pred_traj_gt_stacked, pred_traj_gt), dim=1) 
+        
+        # Add the start and end indexes of current trajectories
+        curr_batch_size = obs_traj.shape[1]
+        traj_indices_per_batch.append(
+            [curr_traj_cnt, curr_traj_cnt + curr_batch_size]
+            )
+        curr_traj_cnt += curr_batch_size
+    
+    # Convert the stacked tensors from (e.g.) [obs_len, total_traj, 2] to 
+    # the SocialWays-friendly shape [total_traj, obs_len, 2]
+    obs_traj_stacked = obs_traj_stacked.permute(1, 0, 2)
+    pred_traj_gt_stacked = pred_traj_gt_stacked.permute(1, 0, 2)
+
+    # Convert them to numpy arrays
+    obs_traj_stacked = obs_traj_stacked.cpu().numpy()
+    pred_traj_gt_stacked = pred_traj_gt_stacked.cpu().numpy()
+    traj_indices_per_batch = np.array(traj_indices_per_batch)
+
+    return obs_traj_stacked, pred_traj_gt_stacked, traj_indices_per_batch
+
