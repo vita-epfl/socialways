@@ -23,7 +23,7 @@ from trajnet_loader import trajnet_loader_batch
 # Parser arguments
 parser = argparse.ArgumentParser(description='Social Ways trajectory prediction.')
 
-parser.add_argument("--dataset_name", default="eth_data", type=str)
+parser.add_argument("--dataset_name", default="colfree_trajdata", type=str)
 parser.add_argument("--delim", default="\t")
 parser.add_argument("--loader_num_workers", default=4, type=int)
 parser.add_argument("--obs_len", default=8, type=int)
@@ -31,12 +31,14 @@ parser.add_argument("--pred_len", default=12, type=int)
 parser.add_argument("--skip", default=1, type=int)
 parser.add_argument("--fill_missing_obs", default=0, type=int)
 parser.add_argument("--keep_single_ped_scenes", default=0, type=int)
+parser.add_argument('--batch-size', '--b', type=int, default=128, metavar='N')
 
+parser.add_argument('--val-size', type=int, default=128, metavar='N')
+parser.add_argument(
+    "--sample", type=float, default=1.0, help="Dataset ratio to sample."
+    )
 
 parser.add_argument("--seed", type=int, default=72, help="Random seed.")
-parser.add_argument('--batch-size', '--b',
-                    type=int, default=256, metavar='N',
-                    help='input batch size for training (default: 256)')
 parser.add_argument('--epochs', '--e',
                     type=int, default=1000, metavar='N',
                     help='number of epochs to train (default: 1000)')
@@ -112,6 +114,7 @@ traj_train_loader = trajnet_loader_batch(
     fill_missing_obs=args.fill_missing_obs,
     keep_single_ped_scenes=args.keep_single_ped_scenes
     ) 
+obs_traj_train, pred_traj_gt_train, traj_indices_train = traj_train_loader
 
 traj_val_loader = trajnet_loader_batch(
     val_loader, args,
@@ -119,23 +122,28 @@ traj_val_loader = trajnet_loader_batch(
     fill_missing_obs=args.fill_missing_obs,
     keep_single_ped_scenes=args.keep_single_ped_scenes
     )   
+obs_traj_val, pred_traj_gt_val, traj_indices_val = traj_val_loader
 
-############################################
-############################################
-# TODO: 
-#   - stack the train and val sets together
-#   - update the traj indices of the val set !!!
-############################################
-############################################
+# Stack the train and val sets together and update the indices of the val set 
+obs_traj_merged = np.vstack([obs_traj_train, obs_traj_val])
+pred_traj_gt_merged = np.vstack([pred_traj_gt_train, pred_traj_gt_val])
 
-data = np.load(input_file)
-# Data come as NxTx2 numpy nd-arrays where N is the number of trajectories,
-# T is their duration.
-dataset_obsv, dataset_pred, dataset_t, the_batches = \
-    data['obsvs'], data['preds'], data['times'], data['batches']
+# Add the last train trajectory index to all the indices of val trajectories
+traj_indices_val_updated = traj_indices_val + traj_indices_train[-1][1]
+traj_indices_merged = np.vstack([traj_indices_train, traj_indices_val_updated])
 
-# 4/5 of the batches to be used for training
-train_size = max(1, (len(the_batches) * 4) // 5)
+# In order to change the original code as little as possible, we keep the 
+# old variable names as were used before 
+dataset_obsv = obs_traj_merged
+dataset_pred = pred_traj_gt_merged
+the_batches = traj_indices_merged
+
+# Keep the same train/val sets
+train_size = len(traj_indices_train)
+
+#######################################################
+# Original code (with minor modifications):
+
 train_batches = the_batches[:train_size]
 # Test batches are the remaining ones
 test_batches = the_batches[train_size:]
@@ -150,7 +158,6 @@ n_test_samples = dataset_obsv.shape[0] - n_train_samples
 if n_test_samples == 0:
     n_test_samples = 1
     the_batches = np.array([the_batches[0], the_batches[0]])
-print(input_file, ' # Training samples: ', n_train_samples)
 
 # Normalize the spatial data
 scale = Scale()
@@ -486,7 +493,7 @@ def train():
     batch_size_accum = 0;
     sub_batches = []
     # For all the training batches
-    for ii, batch_i in enumerate(train_batches):
+    for ii, batch_i in enumerate(tqdm(train_batches)):
         batch_size_accum += batch_i[1] - batch_i[0]
         sub_batches.append(batch_i)
 
@@ -611,7 +618,7 @@ def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
     for ii, batch_i in enumerate(test_batches):        
         obsv = dataset_obsv[batch_i[0]:batch_i[1]]
         pred = dataset_pred[batch_i[0]:batch_i[1]]
-        current_t = dataset_t[batch_i[0]]
+        
         bs = int(batch_i[1] - batch_i[0])
         with torch.no_grad():
             all_20_errors = []
@@ -623,6 +630,8 @@ def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
                 err_all = torch.pow((linear_preds[:, :, :2] - pred) / ss, 2).sum(dim=2, keepdim=True).sqrt()
                 all_20_errors.append(err_all.unsqueeze(0))
             else:
+                if n_gen_samples == -1:
+                    n_gen_samples = len()
                 for kk in range(n_gen_samples):
                     noise = torch.FloatTensor(torch.rand(bs, noise_len)).cuda()
                     pred_hat_4d = predict(obsv, noise, n_next)
@@ -632,14 +641,19 @@ def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
 
             all_20_errors = torch.cat(all_20_errors)
             if write_to_file:
-                file_name = os.path.join(write_to_file, str(epoch) + '-' + str(current_t) + '.npz')
+                file_name = os.path.join(
+                    write_to_file, 
+                    str(epoch) + '-' + str(batch_i[0]) + '_' + str(batch_i[1]) + '.npz'
+                    )
                 print('saving to ', file_name)
                 np_obsvs = scale.denormalize(obsv[:, :, :2].data.cpu().numpy())
                 np_preds_our = scale.denormalize(torch.cat(all_20_preds)[:, :, :, :2].data.cpu().numpy())
                 np_preds_gtt = scale.denormalize(pred[:, :, :2].data.cpu().numpy())
                 np_preds_lnr = scale.denormalize(linear_preds[:, :, :2].data.cpu().numpy())
-                np.savez(file_name, timestamp=current_t,
-                         obsvs=np_obsvs, preds_our=np_preds_our, preds_gtt=np_preds_gtt, preds_lnr=np_preds_lnr)
+                np.savez(
+                    file_name, obsvs=np_obsvs, preds_our=np_preds_our, 
+                    preds_gtt=np_preds_gtt, preds_lnr=np_preds_lnr
+                    )
 
             # =============== Prediction Errors ================
             fde_min_12_i, _ = all_20_errors[:, :, -1].min(0, keepdim=True)
@@ -706,6 +720,8 @@ for epoch in trange(start_epoch, n_epochs + 1):  # FIXME : set the number of epo
         }, model_file)
 
     if epoch % 5 == 0:
-        wr_dir = '../medium/' + dataset_name + '/' + model_name + '/' + str(epoch)
-        os.makedirs(wr_dir, exist_ok=True)
-        test(128, write_to_file=wr_dir, just_one=True)
+        # wr_dir = '../medium/' + dataset_name + '/' + model_name + '/' + str(epoch)
+        wr_dir = None
+        if wr_dir is not None:
+            os.makedirs(wr_dir, exist_ok=True)
+        test(args.val_size, write_to_file=wr_dir, just_one=True)
