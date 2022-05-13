@@ -19,14 +19,29 @@ from trajnet_loader import trajnet_loader
 # Socialways
 from models import \
     EncoderLstm, EmbedSocialFeatures, AttentionPooling, DecoderFC, Discriminator
-    
+from trajnet_train import predict 
+
 
 def predict_scene(model, batch, args):
-    ###################
-    # TODO
+    
+    batch = [tensor.cuda() for tensor in batch]
+    # Obs traj is of the shape [pred_len, num_peds, 2]
+    # Should be [num_peds, pred_len, 2]
+    obs_traj = batch[0].permute(1, 0, 2)
 
-    return 
-    ###################
+    # Needed for the predict function
+    hidden_size = args.hidden_size
+    noise_len = args.hidden_size // 2
+    noise = torch.FloatTensor(torch.rand(obs_traj.shape[0], noise_len)).cuda()
+
+    # Obtain predictions
+    pred_hat_4d = predict(obs_traj, noise, args.pred_len)
+
+    ################
+    # TODO: 
+    #   - add the modes for loop
+    #   - understand which of these 4 dimensions is what we need
+    ################
 
 
 def load_predictor(args):
@@ -191,8 +206,9 @@ def main():
 
     scipy.seterr('ignore')
 
-    args.checkpoint = \
-        os.path.join('models', args.dataset_name, 'model_best.pth.tar')
+    args.checkpoint = os.path.join(
+        '..', 'trained_models', f'{args.model}-{args.dataset_name}.pt'
+        )
     args.path = os.path.join('datasets', args.dataset_name, 'test_pred/')
     args.output = [args.checkpoint]
 
