@@ -216,3 +216,66 @@ class DecoderLstm(nn.Module):
         # Applies the fully connected layer to the LSTM output
         out = self.fc(out.squeeze())
         return out
+
+
+# Augment tensors of positions into positions+velocity
+def get_traj_4d(obsv_p, pred_p):
+    obsv_v = obsv_p[:, 1:] - obsv_p[:, :-1]
+    obsv_v = torch.cat([obsv_v[:, 0].unsqueeze(1), obsv_v], dim=1)
+    obsv_4d = torch.cat([obsv_p, obsv_v], dim=2)
+    if len(pred_p) == 0: return obsv_4d
+    pred_p_1 = torch.cat([obsv_p[:, -1].unsqueeze(1), pred_p[:, :-1]], dim=1)
+    pred_v = pred_p - pred_p_1
+    pred_4d = torch.cat([pred_p, pred_v], dim=2)
+    return obsv_4d, pred_4d
+    
+
+def predict(obsv_p, noise, n_next, sub_batches=[]):
+    # Batch size
+    bs = obsv_p.shape[0]
+    # Adds the velocity component to the observations.
+    # This makes of obsv_4d a batch_sizexTx4 tensor
+    obsv_4d = get_traj_4d(obsv_p, [])
+    # Initial values for the hidden and cell states (zero)
+    lstm_h_c = (torch.zeros(n_lstm_layers, bs, encoder.hidden_size).cuda(),
+                torch.zeros(n_lstm_layers, bs, encoder.hidden_size).cuda())
+    encoder.init_lstm(lstm_h_c[0], lstm_h_c[1])
+    # Apply the encoder to the observed sequence
+    # obsv_4d: batch_sizexTx4 tensor
+    encoder(obsv_4d)
+    if len(sub_batches) == 0:
+        sub_batches = [[0, obsv_p.size(0)]]
+
+    if use_social:
+        features = SocialFeatures(obsv_4d, sub_batches)
+        emb_features = feature_embedder(features, sub_batches)
+        weighted_features = attention(
+            emb_features, encoder.lstm_h[0].squeeze(), sub_batches
+            )
+    else:
+        weighted_features = torch.zeros_like(encoder.lstm_h[0].squeeze())
+
+    pred_4ds = []
+    last_obsv = obsv_4d[:, -1]
+    # For all the steps to predict, applies a step of the decoder
+    for ii in range(n_next):
+        # Takes the current output of the encoder to feed the decoder
+        # Gets the ouputs as a displacement/velocity
+        new_v = decoder(
+            encoder.lstm_h[0].view(bs, -1), 
+            weighted_features.view(bs, -1), 
+            noise
+            ).view(bs, 2)
+        # Deduces the predicted position
+        new_p = new_v + last_obsv[:, :2]
+        # The last prediction done will be new_p,new_v
+        last_obsv = torch.cat([new_p, new_v], dim=1)
+        # Keeps all the predictions
+        pred_4ds.append(last_obsv)
+        # Applies LSTM encoding to the last prediction
+        # pred_4ds[-1]: batch_size x 4 tensor
+        encoder(pred_4ds[-1])
+
+    return torch.stack(pred_4ds, 1)
+
+

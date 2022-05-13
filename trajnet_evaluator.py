@@ -29,19 +29,30 @@ def predict_scene(model, batch, args):
     # Should be [num_peds, pred_len, 2]
     obs_traj = batch[0].permute(1, 0, 2)
 
-    # Needed for the predict function
-    hidden_size = args.hidden_size
+    # Needed to generate noise for the predict function
     noise_len = args.hidden_size // 2
-    noise = torch.FloatTensor(torch.rand(obs_traj.shape[0], noise_len)).cuda()
 
-    # Obtain predictions
-    pred_hat_4d = predict(obs_traj, noise, args.pred_len)
+    # Get the predictions and save them
+    multimodal_outputs = {}    
+    for num_p in range(args.modes):
+        # Generate noise and obtain the predictions
+        noise = torch.FloatTensor(torch.rand(obs_traj.shape[0], noise_len)).cuda()
+        pred_traj_fake_4d = predict(obs_traj, noise, args.pred_len)
+        pred_traj_fake = pred_traj_fake_4d[:, :, :2]
+
+        output_primary = pred_traj_fake[:, 0]
+        output_neighs = pred_traj_fake[:, 1:]
+        multimodal_outputs[num_p] = [output_primary, output_neighs]
 
     ################
-    # TODO: 
-    #   - add the modes for loop
-    #   - understand which of these 4 dimensions is what we need
+    # FIXME / TODO:
+    #   - Normalization of the data!!! 
+    #       - they normalize the data in the training script
+    #       => What should we do??? Maybe save the scaler and use it here???
     ################
+
+    return multimodal_outputs
+
 
 
 def load_predictor(args):
@@ -53,6 +64,7 @@ def load_predictor(args):
     social_feature_size = args.hidden_size
     noise_len = args.hidden_size // 2
     n_lstm_layers = 1
+    use_social = False
     n_next = args.pred_len
     
     # ====== Loading checkpoints ======
@@ -80,6 +92,13 @@ def load_predictor(args):
     encoder.load_state_dict(checkpoint['encoder_dict'])
     decoder.load_state_dict(checkpoint['decoder_dict'])
     D.load_state_dict(checkpoint['D_dict'])
+
+    # Put all of them in evaluation mode
+    attention.eval()
+    feature_embedder.eval()
+    encoder.eval() 
+    decoder.eval() 
+    D.eval()
 
     return attention, feature_embedder, encoder, decoder, D
 
