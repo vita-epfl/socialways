@@ -20,6 +20,7 @@ from trajnet_loader import trajnet_loader
 from trajnet_utils import \
     EncoderLstm, EmbedSocialFeatures, AttentionPooling, DecoderFC, Discriminator
 from trajnet_utils import predict_trajnet
+from utils.parse_utils import Scale
 
 
 # ====== Hard-coded hyperparameters ======
@@ -30,13 +31,15 @@ use_social = False
 # ========================================
 
 
-def predict_scene(models, batch, args):
-    attention, feature_embedder, encoder, decoder, D = models 
+def predict_scene(models, scaler, batch, args):
 
     batch = [tensor.cuda() for tensor in batch]
     # Obs traj is of the shape [pred_len, num_peds, 2]
     # Should be [num_peds, pred_len, 2]
     obs_traj = batch[0].permute(1, 0, 2)
+
+    # !!! Normalize the input data !!!
+    obs_traj = scaler.normalize(obs_traj)
 
     # Needed to generate noise for the predict function
     noise_len = args.hidden_size // 2
@@ -52,14 +55,15 @@ def predict_scene(models, batch, args):
             )
         pred_traj_fake = pred_traj_fake_4d[:, :, :2].permute(1, 0, 2)
 
+        # !!! Un-normalize the predictions before saving !!!
+        pred_traj_fake = scaler.denormalize(pred_traj_fake.data.cpu().numpy())
+
         output_primary = pred_traj_fake[:, 0]
         output_neighs = pred_traj_fake[:, 1:]
         multimodal_outputs[num_p] = [output_primary, output_neighs]
 
     ################
     # FIXME / TODO:
-    #   - CHECK THE PRED_TRAJ_FAKE SHAPE AND COMPARE TO STGAT
-    #
     #   - Normalization of the data!!! 
     #       - they normalize the data in the training script
     #       => What should we do??? Maybe save the scaler and use it here???
@@ -110,7 +114,10 @@ def load_predictor(args):
     decoder.eval() 
     D.eval()
 
-    return attention, feature_embedder, encoder, decoder, D
+    # ======= Loading data scaler =======
+    scaler = checkpoint['scaler']
+
+    return (attention, feature_embedder, encoder, decoder, D), scaler
 
 
 def get_predictions(args):
@@ -145,7 +152,7 @@ def get_predictions(args):
 
         print("Model Name: ", model_name)
         # Load: attention, feature_embedder, encoder, decoder, D 
-        models = load_predictor(args)
+        models, scaler = load_predictor(args)
         goal_flag = False
 
         # Iterate over test datasets
@@ -170,7 +177,7 @@ def get_predictions(args):
             # Get all predictions in parallel. Faster!
             scenes_loader = tqdm(scenes_loader)
             pred_list = Parallel(n_jobs=args.n_jobs)(
-                delayed(predict_scene)(models, batch, args)
+                delayed(predict_scene)(models, scaler, batch, args)
                 for batch in scenes_loader
                 )
             
