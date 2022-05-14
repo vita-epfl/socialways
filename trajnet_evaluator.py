@@ -47,10 +47,10 @@ def predict_scene(models, batch, args):
         # Generate noise and obtain the predictions
         noise = torch.FloatTensor(torch.rand(obs_traj.shape[0], noise_len)).cuda()
         pred_traj_fake_4d = predict_trajnet(
-            obs_traj, noise, args.pred_len,
+            obs_traj, noise, args.pred_len, [],
             models, n_lstm_layers, use_social
             )
-        pred_traj_fake = pred_traj_fake_4d[:, :, :2]
+        pred_traj_fake = pred_traj_fake_4d[:, :, :2].permute(1, 0, 2)
 
         output_primary = pred_traj_fake[:, 0]
         output_neighs = pred_traj_fake[:, 1:]
