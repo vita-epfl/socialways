@@ -39,7 +39,8 @@ def predict_scene(models, scaler, batch, args):
     obs_traj = batch[0].permute(1, 0, 2)
 
     # !!! Normalize the input data !!!
-    obs_traj = scaler.normalize(obs_traj)
+    if args.scale:
+        obs_traj = scaler.normalize(obs_traj)
 
     # Needed to generate noise for the predict function
     noise_len = args.hidden_size // 2
@@ -56,7 +57,8 @@ def predict_scene(models, scaler, batch, args):
         pred_traj_fake = pred_traj_fake_4d[:, :, :2].permute(1, 0, 2)
 
         # !!! Un-normalize the predictions before saving !!!
-        pred_traj_fake = scaler.denormalize(pred_traj_fake.data.cpu().numpy())
+        if args.scale:
+            pred_traj_fake = scaler.denormalize(pred_traj_fake.data.cpu().numpy())
 
         output_primary = pred_traj_fake[:, 0]
         output_neighs = pred_traj_fake[:, 1:]
@@ -217,6 +219,9 @@ def main():
     parser.add_argument("--n_jobs", default=8, type=int)
 
     # Socialways
+    parser.add_argument(
+        '--scale', action='store_true', help='disable writing new files'
+        )
     parser.add_argument('--model', '--m', default='socialWays', choices=['socialWays'])
     parser.add_argument(
         '--latent-dim', '--ld', type=int, default=10, metavar='N',
