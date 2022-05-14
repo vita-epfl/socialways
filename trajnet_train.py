@@ -638,8 +638,6 @@ def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
                 err_all = torch.pow((linear_preds[:, :, :2] - pred) / ss, 2).sum(dim=2, keepdim=True).sqrt()
                 all_20_errors.append(err_all.unsqueeze(0))
             else:
-                if n_gen_samples == -1:
-                    n_gen_samples = len()
                 for kk in range(n_gen_samples):
                     noise = torch.FloatTensor(torch.rand(bs, noise_len)).cuda()
                     pred_hat_4d = predict(obsv, noise, n_next)
@@ -673,10 +671,11 @@ def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
             # ==================================================
         if just_one: break
 
-    ade_avg_12 /= n_test_samples
-    fde_avg_12 /= n_test_samples
-    ade_min_12 /= n_test_samples
-    fde_min_12 /= n_test_samples
+    divider = args.batch_size if just_one else n_test_samples
+    ade_avg_12 /= divider
+    fde_avg_12 /= divider
+    ade_min_12 /= divider
+    fde_min_12 /= divider
     print('Avg ADE,FDE (12)= (%.3f, %.3f) | Min(20) ADE,FDE (12)= (%.3f, %.3f)' \
           % (ade_avg_12, fde_avg_12, ade_min_12, fde_min_12))
 
