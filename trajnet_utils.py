@@ -230,7 +230,16 @@ def get_traj_4d(obsv_p, pred_p):
     return obsv_4d, pred_4d
     
 
-def predict(obsv_p, noise, n_next, sub_batches=[]):
+def predict_trajnet(
+    obsv_p, noise, n_next, sub_batches, # old arguments
+    models, n_lstm_layers, use_social   # arguments needed for trajnet evaluator
+    ):
+
+    #####
+    # Needed for trajnet evaluator 
+    attention, feature_embedder, encoder, decoder, D = models 
+    #####
+
     # Batch size
     bs = obsv_p.shape[0]
     # Adds the velocity component to the observations.

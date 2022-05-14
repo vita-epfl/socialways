@@ -17,13 +17,22 @@ from evaluator.write_utils import \
 from trajnet_loader import trajnet_loader
 
 # Socialways
-from models import \
+from trajnet_utils import \
     EncoderLstm, EmbedSocialFeatures, AttentionPooling, DecoderFC, Discriminator
-from trajnet_train import predict 
+from trajnet_utils import predict_trajnet
 
 
-def predict_scene(model, batch, args):
-    
+# ====== Hard-coded hyperparameters ======
+n_latent_codes = 2
+num_social_features = 3
+n_lstm_layers = 1
+use_social = False
+# ========================================
+
+
+def predict_scene(models, batch, args):
+    attention, feature_embedder, encoder, decoder, D = models 
+
     batch = [tensor.cuda() for tensor in batch]
     # Obs traj is of the shape [pred_len, num_peds, 2]
     # Should be [num_peds, pred_len, 2]
@@ -37,7 +46,10 @@ def predict_scene(model, batch, args):
     for num_p in range(args.modes):
         # Generate noise and obtain the predictions
         noise = torch.FloatTensor(torch.rand(obs_traj.shape[0], noise_len)).cuda()
-        pred_traj_fake_4d = predict(obs_traj, noise, args.pred_len)
+        pred_traj_fake_4d = predict_trajnet(
+            obs_traj, noise, args.pred_len,
+            models, n_lstm_layers, use_social
+            )
         pred_traj_fake = pred_traj_fake_4d[:, :, :2]
 
         output_primary = pred_traj_fake[:, 0]
@@ -46,6 +58,8 @@ def predict_scene(model, batch, args):
 
     ################
     # FIXME / TODO:
+    #   - CHECK THE PRED_TRAJ_FAKE SHAPE AND COMPARE TO STGAT
+    #
     #   - Normalization of the data!!! 
     #       - they normalize the data in the training script
     #       => What should we do??? Maybe save the scaler and use it here???
@@ -58,13 +72,9 @@ def predict_scene(model, batch, args):
 def load_predictor(args):
 
     # ====== Hyper-parameters ======
-    n_latent_codes = 2
     hidden_size = args.hidden_size
-    num_social_features = 3
     social_feature_size = args.hidden_size
     noise_len = args.hidden_size // 2
-    n_lstm_layers = 1
-    use_social = False
     n_next = args.pred_len
     
     # ====== Loading checkpoints ======
@@ -134,7 +144,8 @@ def get_predictions(args):
             continue
 
         print("Model Name: ", model_name)
-        attention, feature_embedder, encoder, decoder, D = load_predictor(args)
+        # Load: attention, feature_embedder, encoder, decoder, D 
+        models = load_predictor(args)
         goal_flag = False
 
         # Iterate over test datasets
@@ -159,7 +170,7 @@ def get_predictions(args):
             # Get all predictions in parallel. Faster!
             scenes_loader = tqdm(scenes_loader)
             pred_list = Parallel(n_jobs=args.n_jobs)(
-                delayed(predict_scene)(model, batch, args)
+                delayed(predict_scene)(models, batch, args)
                 for batch in scenes_loader
                 )
             
