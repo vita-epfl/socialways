@@ -426,8 +426,10 @@ decoder = DecoderFC(hidden_size + social_feature_size + noise_len).cuda()
 # decoder = DecoderLstm(social_feature_size + VEL_VEC_LEN + noise_len, traj_code_len).cuda()
 
 # The Generator parameters and their optimizer
-predictor_params = chain(attention.parameters(), feature_embedder.parameters(),
-                         encoder.parameters(), decoder.parameters())
+predictor_params = chain(
+    attention.parameters(), feature_embedder.parameters(),
+    encoder.parameters(), decoder.parameters()
+    )
 predictor_optimizer = opt.Adam(predictor_params, lr=lr_g, betas=(0.9, 0.999))
 
 # The Discriminator parameters and their optimizer
@@ -458,7 +460,9 @@ def predict(obsv_p, noise, n_next, sub_batches=[]):
     if use_social:
         features = SocialFeatures(obsv_4d, sub_batches)
         emb_features = feature_embedder(features, sub_batches)
-        weighted_features = attention(emb_features, encoder.lstm_h[0].squeeze(), sub_batches)
+        weighted_features = attention(
+            emb_features, encoder.lstm_h[0].squeeze(), sub_batches
+            )
     else:
         weighted_features = torch.zeros_like(encoder.lstm_h[0].squeeze())
 
@@ -468,7 +472,11 @@ def predict(obsv_p, noise, n_next, sub_batches=[]):
     for ii in range(n_next):
         # Takes the current output of the encoder to feed the decoder
         # Gets the ouputs as a displacement/velocity
-        new_v = decoder(encoder.lstm_h[0].view(bs, -1), weighted_features.view(bs, -1), noise).view(bs, 2)
+        new_v = decoder(
+            encoder.lstm_h[0].view(bs, -1), 
+            weighted_features.view(bs, -1), 
+            noise
+            ).view(bs, 2)
         # Deduces the predicted position
         new_p = new_v + last_obsv[:, :2]
         # The last prediction done will be new_p,new_v
@@ -476,7 +484,7 @@ def predict(obsv_p, noise, n_next, sub_batches=[]):
         # Keeps all the predictions
         pred_4ds.append(last_obsv)
         # Applies LSTM encoding to the last prediction
-        # pred_4ds[-1]: batch_sizex4 tensor
+        # pred_4ds[-1]: batch_size x 4 tensor
         encoder(pred_4ds[-1])
 
     return torch.stack(pred_4ds, 1)
@@ -716,7 +724,12 @@ for epoch in trange(start_epoch, n_epochs + 1):  # FIXME : set the number of epo
             'pred_optimizer': predictor_optimizer.state_dict(),
 
             'D_dict': D.state_dict(),
-            'D_optimizer': D_optimizer.state_dict()
+            'D_optimizer': D_optimizer.state_dict(),
+
+            ############
+            # Needed for trajnet_evaluator
+            'scaler': scale
+            ############
         }, model_file)
 
     if epoch % 5 == 0:
