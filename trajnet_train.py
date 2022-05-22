@@ -18,7 +18,9 @@ from utils.linear_models import predict_cv
 import trajnetplusplustools
 from data_load_utils import prepare_data
 from trajnet_loader import trajnet_loader_batch
+import pickle
 
+RESULTS_DICT = {}
 
 # Parser arguments
 parser = argparse.ArgumentParser(description='Social Ways trajectory prediction.')
@@ -616,6 +618,8 @@ def train():
     toc = time.clock()
     print(" Epc=%4d, Train ADE,FDE = (%.3f, %.3f) | time = %.1f" \
           % (epoch, train_ADE, train_FDE, toc - tic))
+    
+    RESULTS_DICT[epoch]['train'] = {'ade': train_ADE, 'fde': train_FDE}
 
 
 def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
@@ -678,11 +682,14 @@ def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
     fde_min_12 /= divider
     print('Validation: Avg ADE,FDE (12)= (%.3f, %.3f) | Min(20) ADE,FDE (12)= (%.3f, %.3f)' \
           % (ade_avg_12, fde_avg_12, ade_min_12, fde_min_12))
+    
+    RESULTS_DICT[epoch]['val'] = {'ade': ade_min_12, 'fde': fde_min_12}
 
 
 # =======================================================
 # ===================== M A I N =========================
 # =======================================================
+
 if os.path.isfile(model_file):
     print('Loading model from ' + model_file)
     checkpoint = torch.load(model_file)
@@ -708,6 +715,9 @@ else:
 
 # ===================== TRAIN =========================
 for epoch in range(start_epoch, n_epochs + 1):  # FIXME : set the number of epochs
+
+    RESULTS_DICT[epoch] = {}
+
     # Main training function
     train()
 
@@ -736,4 +746,8 @@ for epoch in range(start_epoch, n_epochs + 1):  # FIXME : set the number of epoc
         wr_dir = None
         if wr_dir is not None:
             os.makedirs(wr_dir, exist_ok=True)
-        test(args.val_size, write_to_file=wr_dir, just_one=True)
+        test(args.val_size, write_to_file=wr_dir, just_one=False)
+
+        # Save the results dictionary
+        pickle.dump(RESULTS_DICT, open('results_dict.pkl', 'wb'))
+
