@@ -33,7 +33,7 @@ parser.add_argument("--fill_missing_obs", default=0, type=int)
 parser.add_argument("--keep_single_ped_scenes", default=0, type=int)
 parser.add_argument('--batch-size', '--b', type=int, default=128, metavar='N')
 
-parser.add_argument('--val-size', type=int, default=128, metavar='N')
+parser.add_argument('--val-size', type=int, default=20, metavar='N')
 parser.add_argument(
     "--sample", type=float, default=1.0, help="Dataset ratio to sample."
     )
@@ -83,7 +83,7 @@ lr_d = args.d_learning_rate
 # FIXME: ====== Network Size ===================
 # Batch size
 batch_size = args.batch_size
-# LSTM hidden size
+# LSTM hidden size/
 hidden_size = args.hidden_size
 n_epochs = args.epochs
 num_social_features = 3
@@ -104,7 +104,7 @@ train_loader, _, _ = prepare_data(
     'datasets/' + args.dataset_name, subset='/train/', sample=args.sample
     )
 val_loader, _, _ = prepare_data(
-    'datasets/' + args.dataset_name, subset='/val/', sample=args.sample
+    'datasets/' + args.dataset_name, subset='/test_private/', sample=args.sample
     )
 
 # Convert datasets to trajnet loaders
@@ -501,7 +501,7 @@ def train():
     batch_size_accum = 0;
     sub_batches = []
     # For all the training batches
-    for ii, batch_i in enumerate(tqdm(train_batches)):
+    for ii, batch_i in enumerate(train_batches):
         batch_size_accum += batch_i[1] - batch_i[0]
         sub_batches.append(batch_i)
 
@@ -676,7 +676,7 @@ def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
     fde_avg_12 /= divider
     ade_min_12 /= divider
     fde_min_12 /= divider
-    print('Avg ADE,FDE (12)= (%.3f, %.3f) | Min(20) ADE,FDE (12)= (%.3f, %.3f)' \
+    print('Validation: Avg ADE,FDE (12)= (%.3f, %.3f) | Min(20) ADE,FDE (12)= (%.3f, %.3f)' \
           % (ade_avg_12, fde_avg_12, ade_min_12, fde_min_12))
 
 
@@ -707,7 +707,7 @@ else:
 # exit(1)
 
 # ===================== TRAIN =========================
-for epoch in trange(start_epoch, n_epochs + 1):  # FIXME : set the number of epochs
+for epoch in range(start_epoch, n_epochs + 1):  # FIXME : set the number of epochs
     # Main training function
     train()
 
@@ -731,7 +731,7 @@ for epoch in trange(start_epoch, n_epochs + 1):  # FIXME : set the number of epo
             ############
         }, model_file)
 
-    if epoch % 5 == 0:
+    if epoch % 2 == 0:
         # wr_dir = '../medium/' + dataset_name + '/' + model_name + '/' + str(epoch)
         wr_dir = None
         if wr_dir is not None:

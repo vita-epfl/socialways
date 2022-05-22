@@ -215,9 +215,10 @@ def trajnet_loader_batch(
     # then collect all the yielded samples by casting it into a list
     traj_loader = trajnet_loader(
         data_loader, args, 
-        drop_distant_ped=True, 
-        fill_missing_obs=args.fill_missing_obs,
-        keep_single_ped_scenes=args.keep_single_ped_scenes
+        drop_distant_ped=drop_distant_ped, 
+        test=test,
+        fill_missing_obs=fill_missing_obs,
+        keep_single_ped_scenes=keep_single_ped_scenes
         ) 
     traj_loader = list(traj_loader)
 
