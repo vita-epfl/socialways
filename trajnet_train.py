@@ -623,8 +623,8 @@ def train():
 
                 # Calculate collision error
                 _, _, s_pred_col, s_gt_col = trajnet_batch_eval(
-                    pred_hat_4d[:, :, :2].cpu().numpy(),
-                    pred.cpu().numpy(),
+                    scale.denormalize(pred_hat_4d[:, :, :2].cpu().numpy()),
+                    scale.denormalize(pred.cpu().numpy()),
                     seq_start_end
                     )
 
@@ -686,8 +686,8 @@ def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
                     # Evaluating the collisions
                     if kk == 0:
                         _, _, s_pred_col, s_gt_col = trajnet_batch_eval(
-                            pred_hat_4d[:, :, :2].cpu().numpy(),
-                            pred.cpu().numpy(),
+                            scale.denormalize(pred_hat_4d[:, :, :2].cpu().numpy()),
+                            scale.denormalize(pred.cpu().numpy()),
                             seq_start_end
                             )
 
