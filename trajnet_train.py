@@ -19,6 +19,7 @@ import trajnetplusplustools
 from data_load_utils import prepare_data
 from trajnet_loader import trajnet_loader_batch
 import pickle
+from trajnetpp_eval_utils import trajnet_batch_eval
 
 RESULTS_DICT = {}
 
@@ -116,7 +117,8 @@ traj_train_loader = trajnet_loader_batch(
     fill_missing_obs=args.fill_missing_obs,
     keep_single_ped_scenes=args.keep_single_ped_scenes
     ) 
-obs_traj_train, pred_traj_gt_train, traj_indices_train = traj_train_loader
+obs_traj_train, pred_traj_gt_train, traj_indices_train, seq_start_end_train \
+    = traj_train_loader
 
 traj_val_loader = trajnet_loader_batch(
     val_loader, args,
@@ -124,7 +126,8 @@ traj_val_loader = trajnet_loader_batch(
     fill_missing_obs=args.fill_missing_obs,
     keep_single_ped_scenes=args.keep_single_ped_scenes
     )   
-obs_traj_val, pred_traj_gt_val, traj_indices_val = traj_val_loader
+obs_traj_val, pred_traj_gt_val, traj_indices_val, seq_start_end_val \
+    = traj_val_loader
 
 # Stack the train and val sets together and update the indices of the val set 
 obs_traj_merged = np.vstack([obs_traj_train, obs_traj_val])
@@ -142,6 +145,9 @@ the_batches = traj_indices_merged
 
 # Keep the same train/val sets
 train_size = len(traj_indices_train)
+
+# To keep the test/val nomenclature consistent
+seq_start_end_test = seq_start_end_val
 
 #######################################################
 # Original code (with minor modifications):
@@ -501,11 +507,16 @@ def train():
     # Evaluation metrics (ADE/FDE)
     train_ADE, train_FDE = 0, 0
     batch_size_accum = 0;
+    total_traj, pred_col, gt_col = 0, 0.0, 0.0
     sub_batches = []
     # For all the training batches
     for ii, batch_i in enumerate(train_batches):
         batch_size_accum += batch_i[1] - batch_i[0]
         sub_batches.append(batch_i)
+
+        # For the purpose of evaluating collision
+        seq_start_end = seq_start_end_train[ii]
+        total_traj += len(seq_start_end)
 
         # FIXME: Just keep it for toy dataset
         # sub_batches = the_batches
@@ -610,16 +621,34 @@ def train():
                 train_ADE += e
                 train_FDE += err_all[:, -1].sum().item()
 
+                # Calculate collision error
+                _, _, s_pred_col, s_gt_col = trajnet_batch_eval(
+                    pred_hat_4d[:, :, :2].cpu().numpy(),
+                    pred.cpu().numpy(),
+                    seq_start_end
+                    )
+
+                pred_col += s_pred_col
+                gt_col += s_gt_col
+
             batch_size_accum = 0;
             sub_batches = []
 
     train_ADE /= n_train_samples
     train_FDE /= n_train_samples
-    toc = time.clock()
-    print(" Epc=%4d, Train ADE,FDE = (%.3f, %.3f) | time = %.1f" \
-          % (epoch, train_ADE, train_FDE, toc - tic))
     
-    RESULTS_DICT[epoch]['train'] = {'ade': train_ADE, 'fde': train_FDE}
+    # Normalize collisions
+    pred_col = 100 * pred_col / total_traj
+    gt_col = 100 * gt_col / total_traj
+
+    toc = time.clock()
+    print(" Epc=%4d, Train ADE,FDE = (%.3f, %.3f), pred col = %.3f, gt col = %.3f | time = %.1f" \
+          % (epoch, train_ADE, train_FDE, pred_col, gt_col, toc - tic))
+
+    RESULTS_DICT[epoch]['train'] = {
+        'ade': train_ADE, 'fde': train_FDE,
+        'pred_col': pred_col, 'gt_col': gt_col
+        }
 
 
 def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
@@ -627,10 +656,15 @@ def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
     plt.close()
     ade_avg_12, fde_avg_12 = 0, 0
     ade_min_12, fde_min_12 = 0, 0
+    total_traj, pred_col, gt_col = 0, 0.0, 0.0
     for ii, batch_i in enumerate(test_batches):        
         obsv = dataset_obsv[batch_i[0]:batch_i[1]]
         pred = dataset_pred[batch_i[0]:batch_i[1]]
         
+        # For the purpose of evaluating collision
+        seq_start_end = seq_start_end_test[ii]
+        total_traj += len(seq_start_end)
+
         bs = int(batch_i[1] - batch_i[0])
         with torch.no_grad():
             all_20_errors = []
@@ -648,6 +682,17 @@ def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
                     all_20_preds.append(pred_hat_4d.unsqueeze(0))
                     err_all = torch.pow((pred_hat_4d[:, :, :2] - pred) / ss, 2).sum(dim=2, keepdim=True).sqrt()
                     all_20_errors.append(err_all.unsqueeze(0))
+
+                    # Evaluating the collisions
+                    if kk == 0:
+                        _, _, s_pred_col, s_gt_col = trajnet_batch_eval(
+                            pred_hat_4d[:, :, :2].cpu().numpy(),
+                            pred.cpu().numpy(),
+                            seq_start_end
+                            )
+
+                        pred_col += s_pred_col
+                        gt_col += s_gt_col
 
             all_20_errors = torch.cat(all_20_errors)
             if write_to_file:
@@ -680,10 +725,18 @@ def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
     fde_avg_12 /= divider
     ade_min_12 /= divider
     fde_min_12 /= divider
-    print('Validation: Avg ADE,FDE (12)= (%.3f, %.3f) | Min(20) ADE,FDE (12)= (%.3f, %.3f)' \
-          % (ade_avg_12, fde_avg_12, ade_min_12, fde_min_12))
-    
-    RESULTS_DICT[epoch]['val'] = {'ade': ade_min_12, 'fde': fde_min_12}
+
+    # Normalize collisions
+    pred_col = 100 * pred_col / total_traj
+    gt_col = 100 * gt_col / total_traj
+
+    print('Validation: Min ADE,FDE (12)= (%.3f, %.3f), pred col = %.3f, gt col = %.3f' \
+          % (ade_min_12, fde_min_12, pred_col, gt_col))
+
+    RESULTS_DICT[epoch]['val'] = {
+        'ade': ade_min_12, 'fde': fde_min_12,
+        'pred_col': pred_col, 'gt_col': gt_col
+        }
 
 
 # =======================================================

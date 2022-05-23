@@ -224,9 +224,10 @@ def trajnet_loader_batch(
 
     # Adapting for the use-case of SocialWays
     obs_traj_stacked, pred_traj_gt_stacked = None, None 
-    traj_indices_per_batch, curr_traj_cnt = [], 0
+    traj_indices_per_batch, curr_traj_cnt = [], 0 
+    seq_start_end_per_batch = []
     for batch in traj_loader:
-        (obs_traj, pred_traj_gt, _, _, _, _, _) = batch
+        (obs_traj, pred_traj_gt, _, _, _, _, seq_start_end) = batch
 
         # Stack the current trajectories 
         obs_traj_stacked = obs_traj if obs_traj_stacked is None \
@@ -241,6 +242,8 @@ def trajnet_loader_batch(
             [curr_traj_cnt, curr_traj_cnt + curr_batch_size]
             )
         curr_traj_cnt += curr_batch_size
+
+        seq_start_end_per_batch.append(seq_start_end.cpu().numpy())
     
     # Convert the stacked tensors from (e.g.) [obs_len, total_traj, 2] to 
     # the SocialWays-friendly shape [total_traj, obs_len, 2]
@@ -252,5 +255,7 @@ def trajnet_loader_batch(
     pred_traj_gt_stacked = pred_traj_gt_stacked.cpu().numpy()
     traj_indices_per_batch = np.array(traj_indices_per_batch)
 
-    return obs_traj_stacked, pred_traj_gt_stacked, traj_indices_per_batch
+    return \
+        obs_traj_stacked, pred_traj_gt_stacked, \
+        traj_indices_per_batch, seq_start_end_per_batch
 
