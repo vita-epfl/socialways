@@ -510,7 +510,7 @@ def train():
     total_traj, pred_col, gt_col = 0, 0.0, 0.0
     sub_batches = []
     # For all the training batches
-    for ii, batch_i in enumerate(train_batches):
+    for ii, batch_i in tqdm(enumerate(train_batches)):
         batch_size_accum += batch_i[1] - batch_i[0]
         sub_batches.append(batch_i)
 
@@ -657,7 +657,7 @@ def test(n_gen_samples=20, linear=False, write_to_file=None, just_one=False):
     ade_avg_12, fde_avg_12 = 0, 0
     ade_min_12, fde_min_12 = 0, 0
     total_traj, pred_col, gt_col = 0, 0.0, 0.0
-    for ii, batch_i in enumerate(test_batches):        
+    for ii, batch_i in tqdm(enumerate(test_batches)):        
         obsv = dataset_obsv[batch_i[0]:batch_i[1]]
         pred = dataset_pred[batch_i[0]:batch_i[1]]
         
@@ -768,7 +768,7 @@ else:
 
 # ===================== TRAIN =========================
 for epoch in range(start_epoch, n_epochs + 1):  # FIXME : set the number of epochs
-
+    print(f'Epoch {epoch} started...')
     RESULTS_DICT[epoch] = {}
 
     # Main training function
